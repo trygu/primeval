@@ -2,60 +2,43 @@
 
 [![CI](https://github.com/trygu/primeval/actions/workflows/ci.yml/badge.svg)](https://github.com/trygu/primeval/actions/workflows/ci.yml)
 
-A tool for reconstructing RSA/OpenPGP private keys from raw prime factors.
-Given a PGP public key whose RSA modulus can be factored, Primeval extracts
-the modulus, runs CADO-NFS to find p and q, and assembles a valid RSA private
-key (PEM format).
+**Primeval** is a toolchain for the technical recovery of historical RSA keys (512-bit or shorter). The purpose is purely historical and aimed at digital archaeology: these key lengths are today considered cryptographically broken and are no longer in active use. The tool enables reconstruction of private keys that have been lost to history.
 
-> **WARNING:** Reconstructed private keys are highly sensitive. Treat all
-> output files with extreme care — restrict file permissions, use encrypted
-> storage, and securely delete when no longer needed.
+> **WARNING:** Reconstructed private keys are highly sensitive material. Restrict
+> file permissions immediately, use encrypted storage, and securely delete when
+> no longer needed.
 
 ---
 
 ## Requirements
 
-- Python 3.10–3.12 (pgpy is not yet compatible with 3.13+)
-- [uv](https://docs.astral.sh/uv/) — install with `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- Python 3.10–3.12 (`pgpy` is not yet compatible with 3.13+)
+- [uv](https://docs.astral.sh/uv/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - Docker + Docker Compose (for CADO-NFS)
-- **Linux x86_64 host** for the factorization step — the official CADO-NFS
-  image uses AVX2/AVX-512 instructions and will crash with "Illegal
-  instruction" under Rosetta 2 on Apple Silicon
+- **Linux x86_64** for the factorization step — the CADO-NFS image uses AVX2/AVX-512 instructions and will crash with "Illegal instruction" under Rosetta 2 on Apple Silicon
 
----
-
-## Full walkthrough
-
-### 1. Set up Python environment
+## Setup
 
 ```bash
+git clone <repo>
+cd primeval
 uv sync --extra dev
 ```
 
-uv creates `.venv` automatically and installs all dependencies from `uv.lock`.
+## Usage
 
-### 2. Extract modulus from the public key
-
+**Step 1 — Parse the public key:**
 ```bash
 python -m primeval.parse primeval/publickey.asc
 ```
+Writes `data/modulus.txt` and `data/metadata.json`.
 
-Writes:
-
-- `data/modulus.txt` — the RSA modulus N as a decimal integer
-- `data/metadata.json` — key metadata (creation date, exponent e, etc.)
-
-### 3. Start the CADO-NFS container
-
+**Step 2 — Start the CADO-NFS container:**
 ```bash
 docker compose up --build -d
 ```
 
-The container mounts `./data` as `/work` inside the container and idles until
-you run a command in it. Build only happens on first run.
-
-### 4. Run factorization
-
+**Step 3 — Run factorization:**
 ```bash
 N=$(cat data/modulus.txt)
 docker compose exec cado-engine bash -c \
@@ -63,42 +46,158 @@ docker compose exec cado-engine bash -c \
    2> >(tee /work/factorization.log >&2) \
    | tee /work/factors.txt"
 ```
+For 512-bit keys: minutes to hours on modern hardware. CADO-NFS can be interrupted and resumed — state is saved in `data/work/`.
 
-- `data/factors.txt` — stdout from CADO-NFS, contains just `p q` on the last line
-- `data/factorization.log` — full stderr progress log (sieve, linear algebra, etc.)
-- `data/work/` — CADO-NFS intermediate files (can be resumed if interrupted)
-
-Factoring a 155-digit number typically takes several hours on a modern server.
-You can interrupt and resume: CADO-NFS saves state in `data/work/`.
-
-### 5. Extract p and q
-
+**Step 4 — Parse the factorization result:**
 ```bash
 python -m primeval.solve data/factors.txt
-```
-
-Falls back to parsing the full log if needed:
-
-```bash
+# if needed, use the full log as fallback:
 python -m primeval.solve data/factorization.log
 ```
+Writes `data/p.txt` and `data/q.txt`.
 
-Writes:
+**Step 5 — Reconstruct the private key:**
+```bash
+python -m primeval.reconstruct
+chmod 600 private_key.asc
+```
+Writes `private_key.asc` in the working directory.
 
+---
+
+## Background and motivation
+
+Modern cryptography libraries refuse to import RSA keys shorter than 1024-bit and do not support legacy PGP packet formats (v2/v3). Reconstructing a historical private key therefore requires a complete rebuild of the key object from scratch, based on the arithmetic prime components $p$ and $q$ — the prime factors of the modulus $n = p \cdot q$.
+
+Given $n$ and $e$ from the public key, and the factors $p$ and $q$ from a factorization run, one can compute:
+
+$$d \equiv e^{-1} \pmod{\phi(n)}, \quad \phi(n) = (p-1)(q-1)$$
+
+along with the CRT components:
+
+$$d_p = d \bmod (p-1), \quad d_q = d \bmod (q-1), \quad q_{\text{inv}} = q^{-1} \bmod p$$
+
+These six values $\{n, e, d, p, q, d_p, d_q, q_{\text{inv}}\}$ form a complete `RSAPrivateNumbers` structure that can be serialized to a modern PKCS#1 PEM format.
+
+---
+
+## Pipeline
+
+```mermaid
+flowchart TD
+    A([Legacy OpenPGP public key\n.asc / armored]) --> B
+
+    subgraph PARSE["1 · parse.py — Parsing"]
+        B[Read ASCII-armored blob]
+        B --> C{PGP version?}
+        C -->|v4+| D[pgpy: extract n and e\nfrom keymaterial object]
+        C -->|v2/v3| E[Manual CTB packet parser\nDecode MPI fields for n and e]
+        D --> F[Write data/modulus.txt\nand data/metadata.json]
+        E --> F
+    end
+
+    F --> G
+
+    subgraph CADO["2 · CADO-NFS — Factorization"]
+        G[Read modulus.txt: n]
+        G --> H[Phase 1: Polynomial Selection\nFind optimal polynomial pair over Z]
+        H --> I[Phase 2: Sieving\nRelation search via lattice sieving]
+        I --> J[Phase 3: Linear Algebra\nGaussian elimination over GF2\nfind kernel vectors]
+        J --> K[Phase 4: Square Root\nCompute sqrt of product - find p and q]
+        K --> L[Write factorization log\ndata/work/...factorization.log]
+    end
+
+    L --> M
+
+    subgraph SOLVE["3 · solve.py — Factor parsing"]
+        M[Read factorization log]
+        M --> N{Regex match\np = ... / q = ...?}
+        N -->|Yes| O[Extract p and q directly]
+        N -->|No, fallback| P[Find large integers in text\nvalidate N = p·q]
+        O --> Q[Write data/p.txt and data/q.txt]
+        P --> Q
+    end
+
+    Q --> R
+
+    subgraph RECON["4 · reconstruct.py — Reconstruction"]
+        R[Read metadata.json: n and e]
+        R --> S[Read data/p.txt and data/q.txt]
+        S --> T[Validate: p · q = n]
+        T --> U[Compute phi = p-1 · q-1\nd = e⁻¹ mod phi]
+        U --> V[Compute CRT components\ndp, dq, qinv]
+        V --> W[Build RSAPrivateNumbers\nvia cryptography.hazmat]
+        W --> X[Serialize to PEM\nPKCS#1 TraditionalOpenSSL]
+        X --> Y([private_key.asc])
+    end
+```
+
+---
+
+## Technical walkthrough
+
+### Phase 1 — Parsing (`parse.py`)
+
+The script reads an ASCII-armored OpenPGP public key and extracts modulus $n$ and public exponent $e$.
+
+**For PGP v4+ keys**, the `pgpy` library is used. The key's internal `keymaterial` attribute exposes the MPI fields directly.
+
+**For PGP v2/v3 keys** (from the early 1990s), the format is not supported by `pgpy`. A manual packet parser decodes CTB headers (Cipher Type Byte), iterates over packets, and interprets MPI-encoded (Multi-Precision Integer) integers per the RFC 1991 specification.
+
+Outputs:
+- `data/modulus.txt` — decimal representation of $n$
+- `data/metadata.json` — JSON with $n$, $e$, UserID, and creation timestamp
+
+---
+
+### Phase 2 — Factorization (CADO-NFS via Docker)
+
+CADO-NFS is an implementation of the General Number Field Sieve (GNFS), the asymptotically fastest known algorithm for factoring composite integers.
+
+The algorithm operates in four phases:
+
+| Phase | Name | Description |
+|-------|------|-------------|
+| 1 | **Polynomial Selection** | Finds a polynomial pair $(f_1, f_2)$ over $\mathbb{Z}$ that minimizes sieving cost |
+| 2 | **Sieving** | Searches a lattice for *smooth* relations — numbers whose prime factors all lie below a given bound (factor base) |
+| 3 | **Linear Algebra** | Gaussian elimination over $\mathbb{F}_2$ on the relations matrix to find kernel vectors |
+| 4 | **Square Root** | Uses kernel vectors to compute $\sqrt{\prod r_i} \bmod n$, yielding a non-trivial divisor $\gcd(\cdot, n) = p$ |
+
+Outputs:
+- `data/factors.txt` — CADO-NFS stdout: `p q` on the last line
+- `data/factorization.log` — full progress log
+
+---
+
+### Phase 3 — Factor parsing (`solve.py`)
+
+The script reads the CADO-NFS log and extracts $p$ and $q$ via two strategies:
+
+1. **Direct regex match** — searches for patterns like `p = <number>` and `q = <number>`
+2. **Integer fallback** — finds all large integers in the text and validates which pair satisfies $n = p \cdot q$, including handling CADO-NFS's `N p q` single-line format
+
+Outputs:
 - `data/p.txt`
 - `data/q.txt`
 
-### 6. Reconstruct the private key
+---
 
-```bash
-python -m primeval.reconstruct
+### Phase 4 — Reconstruction (`reconstruct.py`)
+
+The script reads $n$, $e$, $p$, and $q$ and builds a complete RSA private key via `cryptography.hazmat`:
+
+```python
+phi  = (p - 1) * (q - 1)
+d    = pow(e, -1, phi)      # private exponent
+dp   = d % (p - 1)          # CRT exponent for p
+dq   = d % (q - 1)          # CRT exponent for q
+qinv = pow(q, -1, p)        # CRT coefficient (modular inverse)
 ```
 
-Validates that `p * q == N`, then writes `private_key.asc` as a PEM-encoded
-RSA private key. Despite the `.asc` name, this is not OpenPGP ASCII armor; it
-is a plain text PEM file containing ASCII lines such as
-`-----BEGIN RSA PRIVATE KEY-----`. The file is created in the current working
-directory.
+`RSAPrivateNumbers(p, q, d, dp, dq, qinv, RSAPublicNumbers(e, n))` validates internal consistency before building the key object. The key is serialized to PKCS#1 PEM format (TraditionalOpenSSL encoding).
+
+Output:
+- `private_key.asc` — PEM-encoded RSA private key (PKCS#1); set permissions with `chmod 600 private_key.asc`
 
 ---
 
@@ -109,13 +208,13 @@ primeval/
   parse.py        — extracts modulus + metadata from PGP public key
   solve.py        — parses CADO-NFS output to find p and q
   reconstruct.py  — assembles RSA private key from p, q, e
-  publickey.asc   — the target PGP public key
+  publickey.asc   — target PGP public key
 data/
   modulus.txt     — N (written by parse.py)
   metadata.json   — key metadata (written by parse.py)
-  factors.txt     — CADO-NFS stdout: "p q" (written during factorization)
-  factorization.log — full CADO-NFS progress log
-  work/           — CADO-NFS intermediate state (resumable)
+  p.txt           — prime factor p (written by solve.py)
+  q.txt           — prime factor q (written by solve.py)
+  work/           — CADO-NFS working directory (Docker volume, resumable)
 cado-src/
   Dockerfile      — wraps registry.gitlab.inria.fr/cado-nfs/cado-nfs/factoring-full:latest
   entrypoint.sh   — minimal entrypoint (mkdir /work; exec "$@")
@@ -124,17 +223,31 @@ tests/            — pytest suite (14 tests)
 
 ---
 
-## Development
+## Dependencies
 
-Run tests:
+| Package | Purpose |
+|---------|---------|
+| `pgpy >= 0.6.0` | Parsing PGP v4+ key structures |
+| `cryptography >= 3.4` | RSA arithmetic and PEM serialization via `hazmat` API |
+| CADO-NFS (Docker) | General Number Field Sieve factorization |
+
+---
+
+## Tests
 
 ```bash
 uv run pytest
 ```
 
-Key test files:
+| Test file | Coverage |
+|-----------|----------|
+| `tests/test_parse.py` | PGP key parsing (v4 and v2/v3) |
+| `tests/test_solve.py` | Factorization log parsing |
+| `tests/test_reconstruct.py` | RSA key assembly |
+| `tests/test_reconstruction.py` | End-to-end with an ephemeral 1024-bit key pair |
 
-- `tests/test_solve.py` — unit tests for log parsing logic
-- `tests/test_parse.py` — unit tests for PGP key parsing
-- `tests/test_reconstruct.py` — unit tests for RSA key assembly
-- `tests/test_reconstruction.py` — integration test with a generated 1024-bit key
+---
+
+## License
+
+See [LICENSE](LICENSE).

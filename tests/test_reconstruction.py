@@ -6,8 +6,8 @@ import pgpy
 from primeval.reconstruct import main as reconstruct_main
 
 
-def test_reconstruction_flow(tmp_path: Path):
-    # Generate an ephemeral RSA OpenPGP keypair
+def test_full_pipeline(tmp_path: Path):
+    # Step 0: generate ephemeral PGP key
     key = pgpy.PGPKey.new(pgpy.constants.PubKeyAlgorithm.RSAEncryptOrSign, 1024)
     uid = pgpy.PGPUID.new("Test User", email="test@example.com")
     key.add_uid(uid, usage={pgpy.constants.KeyFlags.Sign}, hashes=[pgpy.constants.HashAlgorithm.SHA256], ciphers=[pgpy.constants.SymmetricKeyAlgorithm.AES256], compression=[pgpy.constants.CompressionAlgorithm.ZLIB])
@@ -17,34 +17,48 @@ def test_reconstruction_flow(tmp_path: Path):
     pubfile = tmp_path / "pub.asc"
     pubfile.write_text(pub_armored)
 
-    # Attempt to extract p and q from the generated private key internals
-    # (pgpy stores private components in internal attributes generated above)
+    # Run parse.py
+    from primeval.parse import main as parse_main
+
+    cwd = Path.cwd()
     try:
+        # ensure the script writes to tmp_path/data
+        (tmp_path / "data").mkdir()
+        Path.cwd().chdir = False
+    except Exception:
+        pass
+
+    # Use environment by changing into tmp_path for isolated data dir
+    import os
+    oldcwd = os.getcwd()
+    os.chdir(str(tmp_path))
+    try:
+        rv = parse_main([str(pubfile)])
+        assert rv == 0
+
+        # Simulate CADO output: write a fake factorization.log with p and q
         pkt = key._key
         km = getattr(pkt, "keymaterial", pkt)
         p = int(getattr(km, "p"))
         q = int(getattr(km, "q"))
-    except Exception:
-        # If internals are not accessible, skip the deeper assertion
-        p = None
-        q = None
 
-    workdir = tmp_path / "work"
-    workdir.mkdir()
+        log = tmp_path / "data" / "factorization.log"
+        log.write_text(f"p = {p}\nq = {q}\n")
 
-    if p and q:
-        # write a fake factor file
-        ff = workdir / "factors.txt"
-        ff.write_text(f"p = {p}\nq = {q}\n")
-
-        outpath = tmp_path / "private_key.asc"
-        rv = reconstruct_main(["--public-key", str(pubfile), "--workdir", str(workdir), "--output", str(outpath)])
+        # Run solve.py
+        from primeval.solve import main as solve_main
+        rv = solve_main([str(log)])
         assert rv == 0
-        assert outpath.exists()
 
-        data = outpath.read_text()
+        # Run reconstruct.py
+        from primeval.reconstruct import main as recon_main
+        rv = recon_main([])
+        assert rv == 0
+
+        # Validate output
+        out = tmp_path / "private_key.asc"
+        assert out.exists()
+        data = out.read_text()
         assert "BEGIN RSA" in data or "PRIVATE KEY" in data
-    else:
-        # Fallback: ensure reconstruct returns non-zero when it can't find internals
-        rv = reconstruct_main(["--public-key", str(pubfile), "--workdir", str(workdir)])
-        assert rv != 0
+    finally:
+        os.chdir(oldcwd)

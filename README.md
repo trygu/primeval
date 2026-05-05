@@ -1,50 +1,134 @@
 # Primeval
 
-Primeval is a prototype framework to reconstruct RSA/OpenPGP private keys by
-matching metadata from a public key with discovered prime factors (p and q).
+A tool for reconstructing RSA/OpenPGP private keys from raw prime factors.
+Given a PGP public key whose RSA modulus can be factored, Primeval extracts
+the modulus, runs CADO-NFS to find p and q, and assembles a valid RSA private
+key (PEM format).
 
-This repository contains two parts:
+> **WARNING:** Reconstructed private keys are highly sensitive. Treat all
+> output files with extreme care — restrict file permissions, use encrypted
+> storage, and securely delete when no longer needed.
 
-- A Python utility (`primeval.reconstruct`) that scans a workdir for factor
-  files and reconstructs a private key when p and q for a public key's modulus
-  are discovered.
-- A Docker Compose setup to build and run CADO-NFS for factorization tasks
-  (persistent `./data` and `./logs`).
+---
 
-WARNING: Reconstructed private keys are highly sensitive. Treat outputs with
-extreme care (file permissions, encrypted storage, and secure deletion).
+## Requirements
 
-Quickstart
-----------
+- Python 3.10+ with a virtualenv (`python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`)
+- Docker + Docker Compose (for CADO-NFS)
+- **Linux x86_64 host** for the factorization step — the official CADO-NFS
+  image uses AVX2/AVX-512 instructions and will crash with "Illegal
+  instruction" under Rosetta 2 on Apple Silicon
 
-1) Extract modulus from a public key (see `primeval.utils` helper).
+---
 
-2) Start the factorization environment (CADO-NFS) using Docker Compose. This
-   will mount `./data` and `./logs` so factorization checkpoints persist.
+## Full walkthrough
 
-```bash
-docker compose up --build
-```
-
-3) When factors (`p` and `q`) appear in the `./data` output, run:
+### 1. Set up Python environment
 
 ```bash
-python -m primeval.reconstruct --public-key path/to/pub.asc --workdir ./data --output private_key.asc
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
-This will attempt to assemble an OpenPGP private key. If low-level assembly
-is not available in the installed `pgpy` version, the tool will write a PEM
-encoded RSA private key as an ASCII file as a compatible fallback.
+### 2. Extract modulus from the public key
 
-Development
------------
+```bash
+python -m primeval.parse primeval/publickey.asc
+```
 
-Install dev dependencies with your preferred tool (the project is declared in
-`pyproject.toml`). Run tests with `pytest`.
+Writes:
+- `data/modulus.txt` — the RSA modulus N as a decimal integer
+- `data/metadata.json` — key metadata (creation date, exponent e, etc.)
 
-Files of interest:
-- `primeval/reconstruct.py` - CLI and reconstruction logic
-- `tests/test_reconstruction.py` - integration test (generates test key)
-- `docker-compose.yml` - CADO-NFS service (builds from `./cado-src` on host)
-# primeval
-A tool for reconstructing usable RSA keys and cryptographic identities from raw prime factors
+### 3. Start the CADO-NFS container
+
+```bash
+docker compose up --build -d
+```
+
+The container mounts `./data` as `/work` inside the container and idles until
+you run a command in it. Build only happens on first run.
+
+### 4. Run factorization
+
+```bash
+N=$(cat data/modulus.txt)
+docker compose exec cado-engine bash -c \
+  "cado-nfs.py $N --workdir /work/work \
+   2> >(tee /work/factorization.log >&2) \
+   | tee /work/factors.txt"
+```
+
+- `data/factors.txt` — stdout from CADO-NFS, contains just `p q` on the last line
+- `data/factorization.log` — full stderr progress log (sieve, linear algebra, etc.)
+- `data/work/` — CADO-NFS intermediate files (can be resumed if interrupted)
+
+Factoring a 155-digit number typically takes several hours on a modern server.
+You can interrupt and resume: CADO-NFS saves state in `data/work/`.
+
+### 5. Extract p and q
+
+```bash
+python -m primeval.solve data/factors.txt
+```
+
+Falls back to parsing the full log if needed:
+
+```bash
+python -m primeval.solve data/factorization.log
+```
+
+Writes:
+- `data/p.txt`
+- `data/q.txt`
+
+### 6. Reconstruct the private key
+
+```bash
+python -m primeval.reconstruct
+```
+
+Validates that `p * q == N`, then writes `private_key.asc` as a PEM-encoded
+RSA private key. Despite the `.asc` name, this is not OpenPGP ASCII armor; it
+is a plain text PEM file containing ASCII lines such as
+`-----BEGIN RSA PRIVATE KEY-----`. The file is created in the current working
+directory.
+
+---
+
+## Project structure
+
+```
+primeval/
+  parse.py        — extracts modulus + metadata from PGP public key
+  solve.py        — parses CADO-NFS output to find p and q
+  reconstruct.py  — assembles RSA private key from p, q, e
+  publickey.asc   — the target PGP public key
+data/
+  modulus.txt     — N (written by parse.py)
+  metadata.json   — key metadata (written by parse.py)
+  factors.txt     — CADO-NFS stdout: "p q" (written during factorization)
+  factorization.log — full CADO-NFS progress log
+  work/           — CADO-NFS intermediate state (resumable)
+cado-src/
+  Dockerfile      — wraps registry.gitlab.inria.fr/cado-nfs/cado-nfs/factoring-full:latest
+  entrypoint.sh   — minimal entrypoint (mkdir /work; exec "$@")
+tests/            — pytest suite (14 tests)
+```
+
+---
+
+## Development
+
+Run tests:
+
+```bash
+pytest
+```
+
+Key test files:
+- `tests/test_solve.py` — unit tests for log parsing logic
+- `tests/test_parse.py` — unit tests for PGP key parsing
+- `tests/test_reconstruct.py` — unit tests for RSA key assembly
+- `tests/test_reconstruction.py` — integration test with a generated 1024-bit key

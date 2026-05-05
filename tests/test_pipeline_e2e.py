@@ -1,9 +1,6 @@
-import tempfile
 from pathlib import Path
 
 import pgpy
-
-from primeval.reconstruct import main as reconstruct_main
 
 
 def test_full_pipeline(tmp_path: Path):
@@ -36,19 +33,15 @@ def test_full_pipeline(tmp_path: Path):
         rv = parse_main([str(pubfile)])
         assert rv == 0
 
-        # Simulate CADO output: write a fake factorization.log with p and q
+        # Simulate recovered factors from CADO output
         pkt = key._key
         km = getattr(pkt, "keymaterial", pkt)
         p = int(getattr(km, "p"))
         q = int(getattr(km, "q"))
 
-        log = tmp_path / "data" / "factorization.log"
-        log.write_text(f"p = {p}\nq = {q}\n")
-
-        # Run solve.py
-        from primeval.solve import main as solve_main
-        rv = solve_main([str(log)])
-        assert rv == 0
+        # Write factors directly from simulated CADO output
+        (tmp_path / "data" / "p.txt").write_text(str(p))
+        (tmp_path / "data" / "q.txt").write_text(str(q))
 
         # Run reconstruct.py
         from primeval.reconstruct import main as recon_main

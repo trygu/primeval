@@ -28,17 +28,21 @@ uv sync --extra dev
 ## Usage
 
 **Step 1 — Parse the public key:**
+
 ```bash
 python -m primeval.parse primeval/publickey.asc
 ```
+
 Writes `data/modulus.txt` and `data/metadata.json`.
 
 **Step 2 — Start the CADO-NFS container:**
+
 ```bash
 docker compose up --build -d
 ```
 
 **Step 3 — Run factorization:**
+
 ```bash
 N=$(cat data/modulus.txt)
 docker compose exec cado-engine bash -c \
@@ -46,21 +50,39 @@ docker compose exec cado-engine bash -c \
    2> >(tee /work/factorization.log >&2) \
    | tee /work/factors.txt"
 ```
+
 For 512-bit keys: minutes to hours on modern hardware. CADO-NFS can be interrupted and resumed — state is saved in `data/work/`.
 
-**Step 4 — Parse the factorization result:**
+**Step 4 — Store factors (`p`, `q`) directly:**
+
+Where to find them:
+
+- `data/factors.txt` (preferred): usually one line with two integers: `p q`
+- `data/factorization.log` (fallback): look near the end; factors are typically printed as two large integers
+
 ```bash
-python -m primeval.solve data/factors.txt
-# if needed, use the full log as fallback:
-python -m primeval.solve data/factorization.log
+# Inspect factors.txt (expected format: "p q")
+tail -n 1 data/factors.txt
+
+# Create files and paste each factor manually:
+cat > data/p.txt
+# paste p, then press Enter, then Ctrl-D
+
+cat > data/q.txt
+# paste q, then press Enter, then Ctrl-D
 ```
+
+Take `p` and `q` from `data/factors.txt` (preferred) or `data/factorization.log` (fallback).
+
 Writes `data/p.txt` and `data/q.txt`.
 
 **Step 5 — Reconstruct the private key:**
+
 ```bash
 python -m primeval.reconstruct
 chmod 600 private_key.asc
 ```
+
 Writes `private_key.asc` in the working directory.
 
 ---
@@ -104,21 +126,16 @@ flowchart TD
         H --> I[Phase 2: Sieving\nRelation search via lattice sieving]
         I --> J[Phase 3: Linear Algebra\nGaussian elimination over GF2\nfind kernel vectors]
         J --> K[Phase 4: Square Root\nCompute sqrt of product - find p and q]
-        K --> L[Write factorization log\ndata/work/...factorization.log]
+        K --> L[Write factors.txt and factorization.log\ndata/work/...]
     end
 
     L --> M
 
-    subgraph SOLVE["3 · solve.py — Factor parsing"]
-        M[Read factorization log]
-        M --> N{Regex match\np = ... / q = ...?}
-        N -->|Yes| O[Extract p and q directly]
-        N -->|No, fallback| P[Find large integers in text\nvalidate N = p·q]
-        O --> Q[Write data/p.txt and data/q.txt]
-        P --> Q
+    subgraph HANDOFF["3 · Factor handoff"]
+      M[Write data/p.txt and data/q.txt]
     end
 
-    Q --> R
+    M --> R
 
     subgraph RECON["4 · reconstruct.py — Reconstruction"]
         R[Read metadata.json: n and e]
@@ -145,6 +162,7 @@ The script reads an ASCII-armored OpenPGP public key and extracts modulus $n$ an
 **For PGP v2/v3 keys** (from the early 1990s), the format is not supported by `pgpy`. A manual packet parser decodes CTB headers (Cipher Type Byte), iterates over packets, and interprets MPI-encoded (Multi-Precision Integer) integers per the RFC 1991 specification.
 
 Outputs:
+
 - `data/modulus.txt` — decimal representation of $n$
 - `data/metadata.json` — JSON with $n$, $e$, UserID, and creation timestamp
 
@@ -164,19 +182,36 @@ The algorithm operates in four phases:
 | 4 | **Square Root** | Uses kernel vectors to compute $\sqrt{\prod r_i} \bmod n$, yielding a non-trivial divisor $\gcd(\cdot, n) = p$ |
 
 Outputs:
+
 - `data/factors.txt` — CADO-NFS stdout: `p q` on the last line
 - `data/factorization.log` — full progress log
 
 ---
 
-### Phase 3 — Factor parsing (`solve.py`)
+### Phase 3 — Factor handoff
 
-The script reads the CADO-NFS log and extracts $p$ and $q$ via two strategies:
+Use CADO's factor output and write the two factors to files consumed by reconstruction.
 
-1. **Direct regex match** — searches for patterns like `p = <number>` and `q = <number>`
-2. **Integer fallback** — finds all large integers in the text and validates which pair satisfies $n = p \cdot q$, including handling CADO-NFS's `N p q` single-line format
+Primary source:
 
-Outputs:
+- `data/factors.txt` (from Step 3) with one line: `p q`
+
+Quick check:
+
+```bash
+tail -n 1 data/factors.txt
+```
+
+Fallback source:
+
+- `data/factorization.log` (full log) if `factors.txt` is unavailable
+
+Tip for log fallback:
+
+- Search near the end of the log for the final factor output line containing two large integers.
+
+Required files:
+
 - `data/p.txt`
 - `data/q.txt`
 
@@ -197,6 +232,7 @@ qinv = pow(q, -1, p)        # CRT coefficient (modular inverse)
 `RSAPrivateNumbers(p, q, d, dp, dq, qinv, RSAPublicNumbers(e, n))` validates internal consistency before building the key object. The key is serialized to PKCS#1 PEM format (TraditionalOpenSSL encoding).
 
 Output:
+
 - `private_key.asc` — PEM-encoded RSA private key (PKCS#1); set permissions with `chmod 600 private_key.asc`
 
 ---
@@ -206,19 +242,18 @@ Output:
 ```
 primeval/
   parse.py        — extracts modulus + metadata from PGP public key
-  solve.py        — parses CADO-NFS output to find p and q
   reconstruct.py  — assembles RSA private key from p, q, e
   publickey.asc   — target PGP public key
 data/
   modulus.txt     — N (written by parse.py)
   metadata.json   — key metadata (written by parse.py)
-  p.txt           — prime factor p (written by solve.py)
-  q.txt           — prime factor q (written by solve.py)
+  p.txt           — prime factor p (written manually from CADO output)
+  q.txt           — prime factor q (written manually from CADO output)
   work/           — CADO-NFS working directory (Docker volume, resumable)
 cado-src/
   Dockerfile      — wraps registry.gitlab.inria.fr/cado-nfs/cado-nfs/factoring-full:latest
   entrypoint.sh   — minimal entrypoint (mkdir /work; exec "$@")
-tests/            — pytest suite (14 tests)
+tests/            — pytest suite (8 tests)
 ```
 
 ---
@@ -226,7 +261,7 @@ tests/            — pytest suite (14 tests)
 ## Dependencies
 
 | Package | Purpose |
-|---------|---------|
+| --------- | --------- |
 | `pgpy >= 0.6.0` | Parsing PGP v4+ key structures |
 | `cryptography >= 3.4` | RSA arithmetic and PEM serialization via `hazmat` API |
 | CADO-NFS (Docker) | General Number Field Sieve factorization |
@@ -240,11 +275,10 @@ uv run pytest
 ```
 
 | Test file | Coverage |
-|-----------|----------|
+| --------- | --------- |
 | `tests/test_parse.py` | PGP key parsing (v4 and v2/v3) |
-| `tests/test_solve.py` | Factorization log parsing |
-| `tests/test_reconstruct.py` | RSA key assembly |
-| `tests/test_reconstruction.py` | End-to-end with an ephemeral 1024-bit key pair |
+| `tests/test_reconstruct_unit.py` | RSA key assembly |
+| `tests/test_pipeline_e2e.py` | End-to-end with an ephemeral 1024-bit key pair |
 
 ---
 

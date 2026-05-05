@@ -1,5 +1,7 @@
 # Primeval
 
+[![CI](https://github.com/trygu/primeval/actions/workflows/ci.yml/badge.svg)](https://github.com/trygu/primeval/actions/workflows/ci.yml)
+
 A tool for reconstructing RSA/OpenPGP private keys from raw prime factors.
 Given a PGP public key whose RSA modulus can be factored, Primeval extracts
 the modulus, runs CADO-NFS to find p and q, and assembles a valid RSA private

@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  cado:
+    image: ubuntu:24.04
+    container_name: cado-nfs
+    tty: true
+    stdin_open: true
+    volumes:
+      - ./data:/opt/cado/data
+      - ./logs:/opt/cado/logs
+      - ./cado-src:/opt/cado-src
+    environment:
+      - DEBIAN_FRONTEND=noninteractive
+    entrypoint: ["/bin/bash", "/opt/cado-src/entrypoint.sh"]
+    build: .

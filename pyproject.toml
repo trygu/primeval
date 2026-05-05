@@ -1,0 +1,19 @@
+[project]
+name = "primeval"
+version = "0.1.0"
+description = "Primeval: automated RSA/OpenPGP private-key reconstruction from factors"
+authors = [ { name = "Primeval" } ]
+dependencies = [
+    "pgpy>=0.6.0",
+    "cryptography>=3.4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+primeval = "primeval.reconstruct:main"

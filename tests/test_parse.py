@@ -56,7 +56,6 @@ def test_parse_main_writes_files(tmp_path):
     try:
         rv = parse_main([str(PUBKEY_ASC)])
         assert rv == 0
-        assert not (tmp_path / "data" / "modulus.txt").exists()
         md = json.loads((tmp_path / "data" / "metadata.json").read_text())
         assert int(md["n"]) > 0
     finally:

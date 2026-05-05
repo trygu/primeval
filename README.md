@@ -138,7 +138,7 @@ flowchart TD
     M --> R
 
     subgraph RECON["4 · reconstruct.py — Reconstruction"]
-        R[Read metadata.json: n and e]
+        R[Read data/metadata.json: n and e]
         R --> S[Read data/p.txt and data/q.txt]
         S --> T[Validate: p · q = n]
         T --> U[Compute phi = p-1 · q-1\nd = e⁻¹ mod phi]

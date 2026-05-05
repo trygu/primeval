@@ -13,7 +13,8 @@ key (PEM format).
 
 ## Requirements
 
-- Python 3.10+ with a virtualenv (`python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"`)
+- Python 3.10–3.12 (pgpy is not yet compatible with 3.13+)
+- [uv](https://docs.astral.sh/uv/) — install with `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - Docker + Docker Compose (for CADO-NFS)
 - **Linux x86_64 host** for the factorization step — the official CADO-NFS
   image uses AVX2/AVX-512 instructions and will crash with "Illegal
@@ -26,10 +27,10 @@ key (PEM format).
 ### 1. Set up Python environment
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+uv sync --extra dev
 ```
+
+uv creates `.venv` automatically and installs all dependencies from `uv.lock`.
 
 ### 2. Extract modulus from the public key
 
@@ -124,7 +125,7 @@ tests/            — pytest suite (14 tests)
 Run tests:
 
 ```bash
-pytest
+uv run pytest
 ```
 
 Key test files:

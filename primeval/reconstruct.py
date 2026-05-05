@@ -68,7 +68,7 @@ def write_private(key_pem: bytes) -> Path:
     return out
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main() -> int:
     try:
         md = read_metadata()
         n = int(md.get("n"))

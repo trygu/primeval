@@ -34,7 +34,7 @@ def test_recon_main_success(tmp_path):
     oldcwd = os.getcwd()
     os.chdir(str(tmp_path))
     try:
-        rv = recon_main([])
+        rv = recon_main()
         assert rv == 0
         pem = (tmp_path / "private_key.asc").read_bytes()
         key = load_pem_private_key(pem, password=None)
@@ -53,7 +53,7 @@ def test_recon_main_wrong_factors(tmp_path):
     oldcwd = os.getcwd()
     os.chdir(str(tmp_path))
     try:
-        rv = recon_main([])
+        rv = recon_main()
         assert rv != 0
     finally:
         os.chdir(oldcwd)
@@ -67,7 +67,7 @@ def test_recon_main_missing_files(tmp_path):
     oldcwd = os.getcwd()
     os.chdir(str(tmp_path))
     try:
-        rv = recon_main([])
+        rv = recon_main()
         assert rv != 0
     finally:
         os.chdir(oldcwd)

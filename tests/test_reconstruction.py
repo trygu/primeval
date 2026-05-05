@@ -52,7 +52,7 @@ def test_full_pipeline(tmp_path: Path):
 
         # Run reconstruct.py
         from primeval.reconstruct import main as recon_main
-        rv = recon_main([])
+        rv = recon_main()
         assert rv == 0
 
         # Validate output

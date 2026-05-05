@@ -33,7 +33,7 @@ uv sync --extra dev
 python -m primeval.parse primeval/publickey.asc
 ```
 
-Writes `data/modulus.txt` and `data/metadata.json`.
+Writes `data/metadata.json`.
 
 **Step 2 — Start the CADO-NFS container:**
 
@@ -44,7 +44,7 @@ docker compose up --build -d
 **Step 3 — Run factorization:**
 
 ```bash
-N=$(cat data/modulus.txt)
+N=$(python -c "import json; print(json.load(open('data/metadata.json'))['n'])")
 docker compose exec cado-engine bash -c \
   "cado-nfs.py $N --workdir /work/work \
    2> >(tee /work/factorization.log >&2) \
@@ -114,14 +114,14 @@ flowchart TD
         B --> C{PGP version?}
         C -->|v4+| D[pgpy: extract n and e\nfrom keymaterial object]
         C -->|v2/v3| E[Manual CTB packet parser\nDecode MPI fields for n and e]
-        D --> F[Write data/modulus.txt\nand data/metadata.json]
+        D --> F[Write data/metadata.json]
         E --> F
     end
 
     F --> G
 
     subgraph CADO["2 · CADO-NFS — Factorization"]
-        G[Read modulus.txt: n]
+        G[Read metadata.json: n]
         G --> H[Phase 1: Polynomial Selection\nFind optimal polynomial pair over Z]
         H --> I[Phase 2: Sieving\nRelation search via lattice sieving]
         I --> J[Phase 3: Linear Algebra\nGaussian elimination over GF2\nfind kernel vectors]
@@ -163,7 +163,6 @@ The script reads an ASCII-armored OpenPGP public key and extracts modulus $n$ an
 
 Outputs:
 
-- `data/modulus.txt` — decimal representation of $n$
 - `data/metadata.json` — JSON with $n$, $e$, UserID, and creation timestamp
 
 ---
@@ -245,8 +244,7 @@ primeval/
   reconstruct.py  — assembles RSA private key from p, q, e
   publickey.asc   — target PGP public key
 data/
-  modulus.txt     — N (written by parse.py)
-  metadata.json   — key metadata (written by parse.py)
+  metadata.json   — key metadata including n, e, UserID (written by parse.py)
   p.txt           — prime factor p (written manually from CADO output)
   q.txt           — prime factor q (written manually from CADO output)
   work/           — CADO-NFS working directory (Docker volume, resumable)

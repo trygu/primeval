@@ -2,8 +2,7 @@
 
 Usage: uv run parse.py key.asc
 Writes:
-- data/modulus.txt (decimal n)
-- data/metadata.json (UserID, creation_time, e)
+- data/metadata.json (n, e, UserID, creation_time)
 """
 from __future__ import annotations
 
@@ -148,9 +147,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("Failed to extract:", exc)
         return 4
 
-    (DATA_DIR / "modulus.txt").write_text(str(md["n"]))
     (DATA_DIR / "metadata.json").write_text(json.dumps(md))
-    print("Wrote data/modulus.txt and data/metadata.json")
+    print("Wrote data/metadata.json")
     return 0
 
 

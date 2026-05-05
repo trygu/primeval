@@ -48,7 +48,7 @@ def test_extract_real_v2_key():
 
 
 def test_parse_main_writes_files(tmp_path):
-    """parse main() writes modulus.txt and metadata.json."""
+    """parse main() writes metadata.json."""
     if not PUBKEY_ASC.exists():
         pytest.skip("publickey.asc not present")
     oldcwd = os.getcwd()
@@ -56,7 +56,7 @@ def test_parse_main_writes_files(tmp_path):
     try:
         rv = parse_main([str(PUBKEY_ASC)])
         assert rv == 0
-        assert (tmp_path / "data" / "modulus.txt").exists()
+        assert not (tmp_path / "data" / "modulus.txt").exists()
         md = json.loads((tmp_path / "data" / "metadata.json").read_text())
         assert int(md["n"]) > 0
     finally:

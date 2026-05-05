@@ -41,6 +41,7 @@ python -m primeval.parse primeval/publickey.asc
 ```
 
 Writes:
+
 - `data/modulus.txt` — the RSA modulus N as a decimal integer
 - `data/metadata.json` — key metadata (creation date, exponent e, etc.)
 
@@ -83,6 +84,7 @@ python -m primeval.solve data/factorization.log
 ```
 
 Writes:
+
 - `data/p.txt`
 - `data/q.txt`
 
@@ -131,6 +133,7 @@ uv run pytest
 ```
 
 Key test files:
+
 - `tests/test_solve.py` — unit tests for log parsing logic
 - `tests/test_parse.py` — unit tests for PGP key parsing
 - `tests/test_reconstruct.py` — unit tests for RSA key assembly

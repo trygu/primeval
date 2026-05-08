@@ -4,9 +4,7 @@
 
 **Primeval** is a toolchain for the technical recovery of historical RSA keys (512-bit or shorter). The purpose is purely historical and aimed at digital archaeology: these key lengths are today considered cryptographically broken and are no longer in active use. The tool enables reconstruction of private keys that have been lost to history.
 
-> **WARNING:** Reconstructed private keys are highly sensitive material. Restrict
-> file permissions immediately, use encrypted storage, and securely delete when
-> no longer needed.
+Recovered output should be handled like any other private key.
 
 ---
 
@@ -30,7 +28,7 @@ uv sync --extra dev
 **Step 1 — Parse the public key:**
 
 ```bash
-python -m primeval.parse primeval/publickey.asc
+uv run python -m primeval.parse primeval/publickey.asc
 ```
 
 Writes `data/metadata.json`.
@@ -44,7 +42,7 @@ docker compose up --build -d
 **Step 3 — Run factorization:**
 
 ```bash
-N=$(python -c "import json; print(json.load(open('data/metadata.json'))['n'])")
+N=$(uv run python -c "import json; print(json.load(open('data/metadata.json'))['n'])")
 docker compose exec cado-engine bash -c \
   "cado-nfs.py $N --workdir /work/work \
    2> >(tee /work/factorization.log >&2) \
@@ -72,18 +70,17 @@ cat > data/q.txt
 # paste q, then press Enter, then Ctrl-D
 ```
 
-Take `p` and `q` from `data/factors.txt` (preferred) or `data/factorization.log` (fallback).
-
-Writes `data/p.txt` and `data/q.txt`.
+Take `p` and `q` from `data/factors.txt` (preferred) or `data/factorization.log` (fallback). Reconstruction validates that `p * q == n`.
 
 **Step 5 — Reconstruct the private key:**
 
 ```bash
-python -m primeval.reconstruct
+uv run python -m primeval.reconstruct
 chmod 600 private_key.asc
 ```
 
-Writes `private_key.asc` in the working directory.
+Writes `private_key.asc` in the working directory. Despite the `.asc` suffix,
+this file is a PEM-encoded RSA private key, not an OpenPGP secret-key packet.
 
 ---
 
@@ -236,6 +233,19 @@ Output:
 
 ---
 
+## Limits
+
+- The factorization workflow is intended for historical RSA keys of 512 bits or
+  shorter. Larger keys are outside the practical scope of this project.
+- The Dockerized CADO-NFS step requires native Linux x86_64 with compatible CPU
+  instructions. Apple Silicon via Rosetta is expected to fail.
+- Reconstruction currently writes an unencrypted PKCS#1 PEM key, not a legacy
+  OpenPGP secret-key packet.
+- Tests exercise parsing and reconstruction with generated keys; they do not run
+  a full CADO-NFS factorization.
+
+---
+
 ## Project structure
 
 ```
@@ -247,6 +257,8 @@ data/
   metadata.json   — key metadata including n, e, UserID (written by parse.py)
   p.txt           — prime factor p (written manually from CADO output)
   q.txt           — prime factor q (written manually from CADO output)
+  factors.txt     — captured CADO-NFS stdout (generated)
+  factorization.log — captured CADO-NFS stderr/progress log (generated)
   work/           — CADO-NFS working directory (Docker volume, resumable)
 cado-src/
   Dockerfile      — wraps registry.gitlab.inria.fr/cado-nfs/cado-nfs/factoring-full:latest

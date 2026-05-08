@@ -216,3 +216,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Primeval generated outputs
+data/p.txt
+data/q.txt
+data/factors.txt
+data/factorization.log
+data/work/
+private_key.asc
+private_key.pem

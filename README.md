@@ -111,58 +111,60 @@ These six values $\{n, e, d, p, q, d_p, d_q, q_{\text{inv}}\}$ form a complete `
 ## Pipeline
 
 ```mermaid
-flowchart TD
-    A([OpenPGP public key<br/>.asc / armored]) --> P
+C4Container
+    title Primeval recovery pipeline
 
-    subgraph PARSE["1 · Primeval parse"]
-        P["uv run primeval parse KEY<br/>extract n and e"]
-        P --> M[(data/metadata.json)]
-        M --> N["uv run primeval modulus<br/>print n"]
-    end
+    Person(operator, "Operator", "Runs the recovery workflow")
+    System_Ext(pubkey, "OpenPGP public key", ".asc / armored input")
+    System_Ext(cado, "CADO-NFS", "Docker container", "GNFS factorization")
 
-    N --> D["docker compose exec cado-engine<br/>cado-nfs.py $N --workdir /work/work"]
+    System_Boundary(primeval, "Primeval") {
+        Container(parse, "parse", "CLI", "Extracts n and e from the public key")
+        Container(modulus, "modulus", "CLI", "Prints n for the CADO-NFS run")
+        Container(import_factors, "import-factors", "CLI", "Extracts and validates p/q")
+        Container(reconstruct, "reconstruct", "CLI", "Builds a PKCS#1 PEM private key")
+    }
 
-    subgraph CADO["2 · CADO-NFS"]
-        D --> POLY["Polynomial selection"]
-        POLY --> SIEVE["Lattice sieving<br/>collect relations"]
-        SIEVE --> LA["Linear algebra<br/>find dependencies"]
-        LA --> SQRT["Square root<br/>recover p and q"]
-        SQRT --> CO[(data/factors.txt<br/>data/factorization.log<br/>data/work/)]
-    end
+    System_Boundary(files, "Working files") {
+        ContainerDb(metadata, "data/metadata.json", "JSON", "n, e, user IDs, creation time")
+        ContainerDb(cado_output, "data/factors.txt / factorization.log", "Text", "CADO-NFS output")
+        ContainerDb(work_state, "data/work/", "CADO workdir", "Resumable factorization state")
+        ContainerDb(factor_files, "data/p.txt / data/q.txt", "Text", "Recovered factors")
+        ContainerDb(private_key, "private_key.asc", "PKCS#1 PEM", "Reconstructed private key")
+    }
 
-    CO --> IF
+    Rel(operator, parse, "runs", "uv run primeval parse KEY")
+    Rel(pubkey, parse, "input")
+    Rel(parse, metadata, "writes")
 
-    subgraph HANDOFF["3 · Primeval factor import"]
-        IF["uv run primeval import-factors [SOURCE]<br/>extract and validate p/q"]
-        IF --> F[(data/p.txt<br/>data/q.txt)]
-    end
+    Rel(operator, modulus, "runs", "uv run primeval modulus")
+    Rel(modulus, metadata, "reads n")
+    Rel(operator, cado, "runs with n", "docker compose exec cado-engine")
+    Rel(cado, cado_output, "writes factors and logs")
+    Rel(cado, work_state, "writes resumable state")
 
-    M --> R
-    F --> R
+    Rel(operator, import_factors, "runs", "uv run primeval import-factors")
+    Rel(import_factors, cado_output, "reads")
+    Rel(import_factors, metadata, "validates against n")
+    Rel(import_factors, factor_files, "writes p and q")
 
-    subgraph RECON["4 · Primeval reconstruct"]
-        R["uv run primeval reconstruct<br/>validate p * q = n"]
-        R --> CRT["Compute d, dp, dq, qinv"]
-        CRT --> PEM["Build RSAPrivateNumbers<br/>serialize PKCS#1 PEM"]
-        PEM --> OUT([private_key.asc])
-    end
+    Rel(operator, reconstruct, "runs", "uv run primeval reconstruct")
+    Rel(reconstruct, metadata, "reads n and e")
+    Rel(reconstruct, factor_files, "reads p and q")
+    Rel(reconstruct, private_key, "writes")
 
-    classDef input fill:#eff6ff,stroke:#2563eb,color:#172554
-    classDef cli fill:#ecfdf5,stroke:#059669,color:#064e3b
-    classDef data fill:#f8fafc,stroke:#64748b,color:#0f172a
-    classDef cado fill:#fff7ed,stroke:#ea580c,color:#7c2d12
-    classDef output fill:#f5f3ff,stroke:#7c3aed,color:#3b0764
-
-    class A input
-    class P,N,IF,R cli
-    class M,CO,F data
-    class D,POLY,SIEVE,LA,SQRT cado
-    class CRT,PEM,OUT output
-
-    style PARSE fill:#eff6ff,stroke:#2563eb,stroke-width:1px
-    style CADO fill:#fff7ed,stroke:#ea580c,stroke-width:1px
-    style HANDOFF fill:#ecfdf5,stroke:#059669,stroke-width:1px
-    style RECON fill:#f5f3ff,stroke:#7c3aed,stroke-width:1px
+    UpdateElementStyle(operator, $bgColor="#eff6ff", $fontColor="#172554", $borderColor="#2563eb")
+    UpdateElementStyle(pubkey, $bgColor="#eff6ff", $fontColor="#172554", $borderColor="#2563eb")
+    UpdateElementStyle(parse, $bgColor="#ecfdf5", $fontColor="#064e3b", $borderColor="#059669")
+    UpdateElementStyle(modulus, $bgColor="#ecfdf5", $fontColor="#064e3b", $borderColor="#059669")
+    UpdateElementStyle(import_factors, $bgColor="#ecfdf5", $fontColor="#064e3b", $borderColor="#059669")
+    UpdateElementStyle(reconstruct, $bgColor="#ecfdf5", $fontColor="#064e3b", $borderColor="#059669")
+    UpdateElementStyle(cado, $bgColor="#fff7ed", $fontColor="#7c2d12", $borderColor="#ea580c")
+    UpdateElementStyle(metadata, $bgColor="#f8fafc", $fontColor="#0f172a", $borderColor="#64748b")
+    UpdateElementStyle(cado_output, $bgColor="#f8fafc", $fontColor="#0f172a", $borderColor="#64748b")
+    UpdateElementStyle(work_state, $bgColor="#f8fafc", $fontColor="#0f172a", $borderColor="#64748b")
+    UpdateElementStyle(factor_files, $bgColor="#f8fafc", $fontColor="#0f172a", $borderColor="#64748b")
+    UpdateElementStyle(private_key, $bgColor="#f5f3ff", $fontColor="#3b0764", $borderColor="#7c3aed")
 ```
 
 ---

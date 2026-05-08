@@ -20,4 +20,4 @@ build-backend = "setuptools.build_meta"
 include = ["primeval*"]
 
 [project.scripts]
-primeval = "primeval.reconstruct:main"
+primeval = "primeval.cli:main"

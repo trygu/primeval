@@ -25,10 +25,19 @@ uv sync --extra dev
 
 ## Usage
 
+All tools are available through the `primeval` CLI:
+
+```bash
+uv run primeval parse KEY [-o data/metadata.json]
+uv run primeval modulus [-m data/metadata.json]
+uv run primeval import-factors [data/factors.txt] [-m data/metadata.json] [-p data/p.txt] [-q data/q.txt]
+uv run primeval reconstruct [-m data/metadata.json] [-p data/p.txt] [-q data/q.txt] [-o private_key.asc]
+```
+
 **Step 1 — Parse the public key:**
 
 ```bash
-uv run python -m primeval.parse primeval/publickey.asc
+uv run primeval parse primeval/publickey.asc
 ```
 
 Writes `data/metadata.json`.
@@ -42,7 +51,7 @@ docker compose up --build -d
 **Step 3 — Run factorization:**
 
 ```bash
-N=$(uv run python -c "import json; print(json.load(open('data/metadata.json'))['n'])")
+N=$(uv run primeval modulus)
 docker compose exec cado-engine bash -c \
   "cado-nfs.py $N --workdir /work/work \
    2> >(tee /work/factorization.log >&2) \
@@ -59,23 +68,22 @@ Where to find them:
 - `data/factorization.log` (fallback): look near the end; factors are typically printed as two large integers
 
 ```bash
-# Inspect factors.txt (expected format: "p q")
-tail -n 1 data/factors.txt
-
-# Create files and paste each factor manually:
-cat > data/p.txt
-# paste p, then press Enter, then Ctrl-D
-
-cat > data/q.txt
-# paste q, then press Enter, then Ctrl-D
+uv run primeval import-factors
 ```
 
-Take `p` and `q` from `data/factors.txt` (preferred) or `data/factorization.log` (fallback). Reconstruction validates that `p * q == n`.
+If `factors.txt` is unavailable, use the log:
+
+```bash
+uv run primeval import-factors data/factorization.log
+```
+
+Writes `data/p.txt` and `data/q.txt`. The command validates the pair against
+`data/metadata.json` when metadata is available.
 
 **Step 5 — Reconstruct the private key:**
 
 ```bash
-uv run python -m primeval.reconstruct
+uv run primeval reconstruct
 chmod 600 private_key.asc
 ```
 
@@ -186,25 +194,11 @@ Outputs:
 
 ### Phase 3 — Factor handoff
 
-Use CADO's factor output and write the two factors to files consumed by reconstruction.
-
-Primary source:
-
-- `data/factors.txt` (from Step 3) with one line: `p q`
-
-Quick check:
+Use CADO's factor output and write the two factors to files consumed by reconstruction:
 
 ```bash
-tail -n 1 data/factors.txt
+uv run primeval import-factors
 ```
-
-Fallback source:
-
-- `data/factorization.log` (full log) if `factors.txt` is unavailable
-
-Tip for log fallback:
-
-- Search near the end of the log for the final factor output line containing two large integers.
 
 Required files:
 
@@ -250,7 +244,10 @@ Output:
 
 ```
 primeval/
+  cli.py          — unified command dispatcher
   parse.py        — extracts modulus + metadata from PGP public key
+  modulus.py      — prints n from metadata.json
+  import_factors.py — extracts p and q from CADO-NFS output
   reconstruct.py  — assembles RSA private key from p, q, e
   publickey.asc   — target PGP public key
 data/
@@ -263,7 +260,7 @@ data/
 cado-src/
   Dockerfile      — wraps registry.gitlab.inria.fr/cado-nfs/cado-nfs/factoring-full:latest
   entrypoint.sh   — minimal entrypoint (mkdir /work; exec "$@")
-tests/            — pytest suite (8 tests)
+tests/            — pytest suite
 ```
 
 ---
@@ -286,6 +283,7 @@ uv run pytest
 
 | Test file | Coverage |
 | --------- | --------- |
+| `tests/test_cli.py` | Unified CLI commands and custom paths |
 | `tests/test_parse.py` | PGP key parsing (v4 and v2/v3) |
 | `tests/test_reconstruct_unit.py` | RSA key assembly |
 | `tests/test_pipeline_e2e.py` | End-to-end with an ephemeral 1024-bit key pair |

@@ -1,23 +1,19 @@
-"""parse.py - extract modulus and metadata from a public PGP key
-
-Usage: uv run parse.py key.asc
-Writes:
-- data/metadata.json (n, e, UserID, creation_time)
-"""
+"""Extract modulus and metadata from a public PGP key."""
 from __future__ import annotations
 
+import argparse
+import base64
 import json
 from pathlib import Path
 import sys
-from typing import Optional
-
-import base64
 import struct
+from typing import Optional
 
 import pgpy
 
 
 DATA_DIR = Path("data")
+DEFAULT_METADATA_PATH = DATA_DIR / "metadata.json"
 
 
 def _extract_pgp_v2(blob: str) -> dict:
@@ -128,27 +124,51 @@ def extract(pubpath: Path) -> dict:
     return _extract_pgp_v2(blob)
 
 
+def write_metadata(metadata: dict, output: Path = DEFAULT_METADATA_PATH) -> Path:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(metadata))
+    return output
+
+
+def build_parser(prog: str = "primeval parse") -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Extract RSA modulus metadata from an ASCII-armored OpenPGP public key.",
+    )
+    parser.add_argument("public_key", metavar="KEY", type=Path)
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=DEFAULT_METADATA_PATH,
+        help=f"metadata output path (default: {DEFAULT_METADATA_PATH})",
+    )
+    return parser
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
-    if len(argv) < 1:
-        print("Usage: parse.py key.asc")
-        return 2
 
-    pub = Path(argv[0])
+    parser = build_parser()
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        return int(exc.code)
+
+    pub = args.public_key
     if not pub.exists():
-        print("Public key not found:", pub)
+        print("Public key not found:", pub, file=sys.stderr)
         return 3
 
-    DATA_DIR.mkdir(exist_ok=True)
     try:
         md = extract(pub)
     except Exception as exc:
-        print("Failed to extract:", exc)
+        print("Failed to extract:", exc, file=sys.stderr)
         return 4
 
-    (DATA_DIR / "metadata.json").write_text(json.dumps(md))
-    print("Wrote data/metadata.json")
+    output = write_metadata(md, args.output)
+    print("Wrote", output)
     return 0
 
 

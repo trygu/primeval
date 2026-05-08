@@ -112,46 +112,57 @@ These six values $\{n, e, d, p, q, d_p, d_q, q_{\text{inv}}\}$ form a complete `
 
 ```mermaid
 flowchart TD
-    A([Legacy OpenPGP public key\n.asc / armored]) --> B
+    A([OpenPGP public key<br/>.asc / armored]) --> P
 
-    subgraph PARSE["1 · parse.py — Parsing"]
-        B[Read ASCII-armored blob]
-        B --> C{PGP version?}
-        C -->|v4+| D[pgpy: extract n and e\nfrom keymaterial object]
-        C -->|v2/v3| E[Manual CTB packet parser\nDecode MPI fields for n and e]
-        D --> F[Write data/metadata.json]
-        E --> F
+    subgraph PARSE["1 · Primeval parse"]
+        P["uv run primeval parse KEY<br/>extract n and e"]
+        P --> M[(data/metadata.json)]
+        M --> N["uv run primeval modulus<br/>print n"]
     end
 
-    F --> G
+    N --> D["docker compose exec cado-engine<br/>cado-nfs.py $N --workdir /work/work"]
 
-    subgraph CADO["2 · CADO-NFS — Factorization"]
-        G[Read metadata.json: n]
-        G --> H[Phase 1: Polynomial Selection\nFind optimal polynomial pair over Z]
-        H --> I[Phase 2: Sieving\nRelation search via lattice sieving]
-        I --> J[Phase 3: Linear Algebra\nGaussian elimination over GF2\nfind kernel vectors]
-        J --> K[Phase 4: Square Root\nCompute sqrt of product - find p and q]
-        K --> L[Write factors.txt and factorization.log\ndata/work/...]
+    subgraph CADO["2 · CADO-NFS"]
+        D --> POLY["Polynomial selection"]
+        POLY --> SIEVE["Lattice sieving<br/>collect relations"]
+        SIEVE --> LA["Linear algebra<br/>find dependencies"]
+        LA --> SQRT["Square root<br/>recover p and q"]
+        SQRT --> CO[(data/factors.txt<br/>data/factorization.log<br/>data/work/)]
     end
 
-    L --> M
+    CO --> IF
 
-    subgraph HANDOFF["3 · Factor handoff"]
-      M[Write data/p.txt and data/q.txt]
+    subgraph HANDOFF["3 · Primeval factor import"]
+        IF["uv run primeval import-factors [SOURCE]<br/>extract and validate p/q"]
+        IF --> F[(data/p.txt<br/>data/q.txt)]
     end
 
     M --> R
+    F --> R
 
-    subgraph RECON["4 · reconstruct.py — Reconstruction"]
-        R[Read data/metadata.json: n and e]
-        R --> S[Read data/p.txt and data/q.txt]
-        S --> T[Validate: p · q = n]
-        T --> U[Compute phi = p-1 · q-1\nd = e⁻¹ mod phi]
-        U --> V[Compute CRT components\ndp, dq, qinv]
-        V --> W[Build RSAPrivateNumbers\nvia cryptography.hazmat]
-        W --> X[Serialize to PEM\nPKCS#1 TraditionalOpenSSL]
-        X --> Y([private_key.asc])
+    subgraph RECON["4 · Primeval reconstruct"]
+        R["uv run primeval reconstruct<br/>validate p * q = n"]
+        R --> CRT["Compute d, dp, dq, qinv"]
+        CRT --> PEM["Build RSAPrivateNumbers<br/>serialize PKCS#1 PEM"]
+        PEM --> OUT([private_key.asc])
     end
+
+    classDef input fill:#eff6ff,stroke:#2563eb,color:#172554
+    classDef cli fill:#ecfdf5,stroke:#059669,color:#064e3b
+    classDef data fill:#f8fafc,stroke:#64748b,color:#0f172a
+    classDef cado fill:#fff7ed,stroke:#ea580c,color:#7c2d12
+    classDef output fill:#f5f3ff,stroke:#7c3aed,color:#3b0764
+
+    class A input
+    class P,N,IF,R cli
+    class M,CO,F data
+    class D,POLY,SIEVE,LA,SQRT cado
+    class CRT,PEM,OUT output
+
+    style PARSE fill:#eff6ff,stroke:#2563eb,stroke-width:1px
+    style CADO fill:#fff7ed,stroke:#ea580c,stroke-width:1px
+    style HANDOFF fill:#ecfdf5,stroke:#059669,stroke-width:1px
+    style RECON fill:#f5f3ff,stroke:#7c3aed,stroke-width:1px
 ```
 
 ---

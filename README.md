@@ -111,6 +111,7 @@ These six values $\{n, e, d, p, q, d_p, d_q, q_{\text{inv}}\}$ form a complete `
 ## Pipeline
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#ffffff", "fontFamily": "ui-sans-serif, system-ui, sans-serif", "lineColor": "#475569", "textColor": "#111827"}}}%%
 C4Container
     title Primeval recovery pipeline
 
@@ -119,10 +120,7 @@ C4Container
     System_Ext(cado, "CADO-NFS", "Docker container", "GNFS factorization")
 
     System_Boundary(primeval, "Primeval") {
-        Container(parse, "parse", "CLI", "Extracts n and e from the public key")
-        Container(modulus, "modulus", "CLI", "Prints n for the CADO-NFS run")
-        Container(import_factors, "import-factors", "CLI", "Extracts and validates p/q")
-        Container(reconstruct, "reconstruct", "CLI", "Builds a PKCS#1 PEM private key")
+        Container(cli, "primeval", "Python CLI", "Subcommands: parse, modulus, import-factors, reconstruct")
     }
 
     System_Boundary(files, "Working files") {
@@ -133,38 +131,38 @@ C4Container
         ContainerDb(private_key, "private_key.asc", "PKCS#1 PEM", "Reconstructed private key")
     }
 
-    Rel(operator, parse, "runs", "uv run primeval parse KEY")
-    Rel(pubkey, parse, "input")
-    Rel(parse, metadata, "writes")
-
-    Rel(operator, modulus, "runs", "uv run primeval modulus")
-    Rel(modulus, metadata, "reads n")
-    Rel(operator, cado, "runs with n", "docker compose exec cado-engine")
+    Rel(operator, cli, "runs", "uv run primeval ...")
+    Rel(pubkey, cli, "input to parse")
+    Rel(cli, metadata, "writes and reads")
+    Rel(cli, cado, "passes n to", "docker compose exec cado-engine")
     Rel(cado, cado_output, "writes factors and logs")
     Rel(cado, work_state, "writes resumable state")
-
-    Rel(operator, import_factors, "runs", "uv run primeval import-factors")
-    Rel(import_factors, cado_output, "reads")
-    Rel(import_factors, metadata, "validates against n")
-    Rel(import_factors, factor_files, "writes p and q")
-
-    Rel(operator, reconstruct, "runs", "uv run primeval reconstruct")
-    Rel(reconstruct, metadata, "reads n and e")
-    Rel(reconstruct, factor_files, "reads p and q")
-    Rel(reconstruct, private_key, "writes")
+    Rel(cli, cado_output, "imports factors from")
+    Rel(cli, factor_files, "writes p and q")
+    Rel(cli, private_key, "writes reconstructed key")
 
     UpdateElementStyle(operator, $bgColor="#eff6ff", $fontColor="#172554", $borderColor="#2563eb")
     UpdateElementStyle(pubkey, $bgColor="#eff6ff", $fontColor="#172554", $borderColor="#2563eb")
-    UpdateElementStyle(parse, $bgColor="#ecfdf5", $fontColor="#064e3b", $borderColor="#059669")
-    UpdateElementStyle(modulus, $bgColor="#ecfdf5", $fontColor="#064e3b", $borderColor="#059669")
-    UpdateElementStyle(import_factors, $bgColor="#ecfdf5", $fontColor="#064e3b", $borderColor="#059669")
-    UpdateElementStyle(reconstruct, $bgColor="#ecfdf5", $fontColor="#064e3b", $borderColor="#059669")
+    UpdateElementStyle(cli, $bgColor="#ecfdf5", $fontColor="#064e3b", $borderColor="#059669")
     UpdateElementStyle(cado, $bgColor="#fff7ed", $fontColor="#7c2d12", $borderColor="#ea580c")
     UpdateElementStyle(metadata, $bgColor="#f8fafc", $fontColor="#0f172a", $borderColor="#64748b")
     UpdateElementStyle(cado_output, $bgColor="#f8fafc", $fontColor="#0f172a", $borderColor="#64748b")
     UpdateElementStyle(work_state, $bgColor="#f8fafc", $fontColor="#0f172a", $borderColor="#64748b")
     UpdateElementStyle(factor_files, $bgColor="#f8fafc", $fontColor="#0f172a", $borderColor="#64748b")
     UpdateElementStyle(private_key, $bgColor="#f5f3ff", $fontColor="#3b0764", $borderColor="#7c3aed")
+
+    UpdateBoundaryStyle(primeval, $bgColor="#ffffff", $fontColor="#334155", $borderColor="#94a3b8")
+    UpdateBoundaryStyle(files, $bgColor="#ffffff", $fontColor="#334155", $borderColor="#94a3b8")
+
+    UpdateRelStyle(operator, cli, $textColor="#334155", $lineColor="#64748b")
+    UpdateRelStyle(pubkey, cli, $textColor="#334155", $lineColor="#64748b")
+    UpdateRelStyle(cli, metadata, $textColor="#334155", $lineColor="#64748b")
+    UpdateRelStyle(cli, cado, $textColor="#334155", $lineColor="#64748b")
+    UpdateRelStyle(cado, cado_output, $textColor="#334155", $lineColor="#64748b")
+    UpdateRelStyle(cado, work_state, $textColor="#334155", $lineColor="#64748b")
+    UpdateRelStyle(cli, cado_output, $textColor="#334155", $lineColor="#64748b")
+    UpdateRelStyle(cli, factor_files, $textColor="#334155", $lineColor="#64748b")
+    UpdateRelStyle(cli, private_key, $textColor="#334155", $lineColor="#64748b")
 ```
 
 ---

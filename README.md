@@ -151,9 +151,6 @@ C4Container
     UpdateElementStyle(factor_files, $bgColor="#f8fafc", $fontColor="#0f172a", $borderColor="#64748b")
     UpdateElementStyle(private_key, $bgColor="#f5f3ff", $fontColor="#3b0764", $borderColor="#7c3aed")
 
-    UpdateBoundaryStyle(primeval, $bgColor="#ffffff", $fontColor="#334155", $borderColor="#94a3b8")
-    UpdateBoundaryStyle(files, $bgColor="#ffffff", $fontColor="#334155", $borderColor="#94a3b8")
-
     UpdateRelStyle(operator, cli, $textColor="#334155", $lineColor="#64748b")
     UpdateRelStyle(pubkey, cli, $textColor="#334155", $lineColor="#64748b")
     UpdateRelStyle(cli, metadata, $textColor="#334155", $lineColor="#64748b")
